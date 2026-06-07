@@ -10,7 +10,7 @@ local v8=v7:WaitForChild("Backpack")
 local v9=v7.Character or v7.CharacterAdded:Wait()
 v7.CharacterAdded:Connect(function(v268) v9=v268
 end)
-local v10=require(v2.Modules.DataService)
+local v10;do local _ok,_r=pcall(function() return require(v2.Modules.DataService) end);if _ok and _r then v10=_r else v10={GetData=function() return nil end} end end
 local v11={Pets=v2:WaitForChild("GameEvents"):WaitForChild("PetsService"),Boost=v2:WaitForChild("GameEvents"):WaitForChild("PetBoostService")}
 local v12=v11.Pets
 local v13=v11.Boost
