@@ -2341,7 +2341,7 @@ v231.CanvasSize=UDim2.new(0,0,0,0)
 v16:list(v231,6)
 v16:pad(v231,4,4,4,8)
 _G.HH_Shared={V=v16,T=v15,D=v33,CFG=v24,Player=v7,Backpack=v8,Char=v9,MUTATION_MAP=v19,saveD=v37,getInv=v60,getKG=v61,getAge=v62,getBase=v63,getPType=v64,isFav=v65,findPetTool=v66,getMutName=v67,unequipAll=v91,equipList=v93,buildEquip=v95,waitUntilEquipped=v94,getActivePets=v83,getFarmCF=v92,PetsRemote=v12,FavRemote=v183,SellAllRemote=v184,DataService=v10,htTrack=v29,UI=v14,outerScroll=v231,PageLeveling=v219,_buildTeamDD=v40,getTeamUUIDs=v39}
-loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/wardz25/updater@main/leveling.lua",true))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/wardz25/updater/refs/heads/main/leveling.lua",true))()
 loadstring(game:HttpGet("https://hydra-checker.vercel.app/api/module?name=nightmare",true))()
 local function v235() local v720=false
     local v721=1
