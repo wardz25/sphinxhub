@@ -1,5 +1,3 @@
-local HWID = tostring(game:GetService("RbxAnalyticsService"):GetClientId())
-
 local isTradeWorld = false
 pcall(function()
     local TW_Data = require(game:GetService("ReplicatedStorage"):WaitForChild("Data"):WaitForChild("TradeWorldData"))
