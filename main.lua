@@ -55,7 +55,7 @@ task.spawn(function() local v269,v270=pcall(function() return v3:JSONDecode(game
     end)
 if (v269 and v270) then v18=v270
 end end)
-local v19=v3:JSONDecode(game:HttpGet("https://github.com/wardz25/updater/blob/main/mutation.json"))
+local v19=v3:JSONDecode(game:HttpGet("https://raw.githubusercontent.com/wardz25/updater/refs/heads/main/mutation.json"))
 local v20="PET_UUID"
 local v21="d"
 local v22="HydraX.json"
@@ -2341,8 +2341,8 @@ v231.CanvasSize=UDim2.new(0,0,0,0)
 v16:list(v231,6)
 v16:pad(v231,4,4,4,8)
 _G.HH_Shared={V=v16,T=v15,D=v33,CFG=v24,Player=v7,Backpack=v8,Char=v9,MUTATION_MAP=v19,saveD=v37,getInv=v60,getKG=v61,getAge=v62,getBase=v63,getPType=v64,isFav=v65,findPetTool=v66,getMutName=v67,unequipAll=v91,equipList=v93,buildEquip=v95,waitUntilEquipped=v94,getActivePets=v83,getFarmCF=v92,PetsRemote=v12,FavRemote=v183,SellAllRemote=v184,DataService=v10,htTrack=v29,UI=v14,outerScroll=v231,PageLeveling=v219,_buildTeamDD=v40,getTeamUUIDs=v39}
-loadstring(game:HttpGet("https://raw.githubusercontent.com/wardz25/updater/refs/heads/main/leveling",true))()
-loadstring(game:HttpGet("https://raw.githubusercontent.com/wardz25/updater/refs/heads/main/nightmare",true))()
+loadstring(game:HttpGet("https://cdn.jsdelivr.net/gh/wardz25/updater@main/leveling.lua",true))()
+loadstring(game:HttpGet("https://hydra-checker.vercel.app/api/module?name=nightmare",true))()
 local function v235() local v720=false
     local v721=1
     local v722=v2:WaitForChild("GameEvents"):WaitForChild("PetShardService_RE")
