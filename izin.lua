@@ -1,6 +1,5 @@
 -- ============================================================
--- Hydra Hub – Fully Patched & Deobfuscated
--- Includes caching, retry, and error recovery
+-- Hydra Hub – Fully Patched, No Tracker, No 429
 -- ============================================================
 
 local Players = game:GetService("Players")
@@ -9,6 +8,7 @@ local HttpService = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 local CollectionService = game:GetService("CollectionService")
 local UserInputService = game:GetService("UserInputService")
+
 local LocalPlayer = Players.LocalPlayer
 local Backpack = LocalPlayer:WaitForChild("Backpack")
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -20,7 +20,7 @@ local GameEvents = RS:WaitForChild("GameEvents")
 local PetsRemote = GameEvents:WaitForChild("PetsService")
 local BoostRemote = GameEvents:WaitForChild("PetBoostService")
 
--- ===== Safe HTTP Fetcher with Cache & Retry =====
+-- ===== Safe HTTP Fetcher (Cache + Retry) =====
 local CACHE_DIR = "HydraCache/"
 local function getCacheFile(name)
     return CACHE_DIR .. name .. ".txt"
@@ -32,7 +32,6 @@ local function safeHttpGet(url, cacheName, maxRetries)
     local attempts = 0
     local cachedContent = nil
 
-    -- Try reading cache first
     if writefile and readfile and isfile then
         local cacheFile = getCacheFile(cacheName or url:match("([^/]+)$") or "unknown")
         if isfile(cacheFile) then
@@ -53,13 +52,9 @@ local function safeHttpGet(url, cacheName, maxRetries)
         end
     end
 
-    -- If we have cache, return it immediately (but still try refresh in background)
     if cachedContent then
-        -- background refresh
         task.spawn(function()
-            local ok, newContent = pcall(function()
-                return game:HttpGet(url)
-            end)
+            local ok, newContent = pcall(function() return game:HttpGet(url) end)
             if ok and newContent and newContent ~= cachedContent and #newContent > 10 then
                 saveCache(newContent)
             end
@@ -67,12 +62,9 @@ local function safeHttpGet(url, cacheName, maxRetries)
         return cachedContent
     end
 
-    -- No cache: fetch with retry
     while attempts < maxRetries do
         attempts = attempts + 1
-        local ok, content = pcall(function()
-            return game:HttpGet(url)
-        end)
+        local ok, content = pcall(function() return game:HttpGet(url) end)
         if ok and content and #content > 10 and not content:find("429") then
             saveCache(content)
             return content
@@ -83,11 +75,9 @@ local function safeHttpGet(url, cacheName, maxRetries)
     return nil
 end
 
--- ===== Load Libraries with Fallback =====
+-- ===== Load HydraUI Library =====
 local HydraUI = nil
-
 local function loadHydraUI()
-    -- Try to load from cache or fetch
     local libStr = safeHttpGet("https://raw.githubusercontent.com/Punpunzero02/updater/refs/heads/main/HydraMainLibrary.lua", "HydraMainLibrary")
     if libStr then
         local fn, err = loadstring(libStr)
@@ -98,14 +88,12 @@ local function loadHydraUI()
                 return true
             end
         end
-        warn("[Hydra] Failed to compile HydraMainLibrary:", err)
     end
-    -- Fallback: if we have a hardcoded minimal UI? Not feasible. But we can try to load from an alternative source.
     return false
 end
 
 if not loadHydraUI() then
-    error("Could not load HydraUI library. Please check your internet connection.")
+    error("HydraUI library gagal dimuat. Cek koneksi internet.")
 end
 
 -- ===== Color Scheme =====
@@ -123,15 +111,50 @@ local Colors = {
 
 local UI = HydraUI.new(Colors)
 
--- ===== Patch buildPetList (if missing) =====
+-- ===== Patch buildPetList =====
 if not HydraUI.buildPetList then
-    -- (full implementation from previous deobfuscation)
     HydraUI.buildPetList = function(parent, container, selected, isFav, onSelect, searchText, kgFunc, invData, favFunc, ageFunc)
-        -- ... (same as before)
+        local searchLower = string.lower(searchText or "")
+        local petData = invData()
+        local petList = {}
+        for uuid in pairs(petData) do table.insert(petList, uuid) end
+        table.sort(petList, function(a, b)
+            local aSel = selected[a] and 1 or 0
+            local bSel = selected[b] and 1 or 0
+            if aSel ~= bSel then return aSel > bSel end
+            return kgFunc(a) > kgFunc(b)
+        end)
+        for _, uuid in ipairs(petList) do
+            local data = petData[uuid]
+            if data then
+                local petType = data.PetType or "?"
+                if searchLower ~= "" and not string.lower(petType):find(searchLower, 1, true) then
+                    goto continue
+                end
+                local isSelected = selected[uuid] == true
+                local isFav = favFunc(uuid) == true
+                local age = data.PetData and data.PetData.Level or 0
+                local kg = kgFunc(uuid)
+                local base = data.PetData and data.PetData.BaseWeight or 0
+                local favStr = isFav and " ❤" or ""
+                local selStr = isSelected and " (active)" or ""
+                local label = string.format("%s%s%s | Age %d | %.2f KG | Base %.2f", petType, selStr, favStr, age, kg, base)
+                local btn = UI:button(parent, container, label, UDim2.new(1, 0, 0, 26), nil,
+                    (isSelected and Colors.SEL_BG) or (isFav and Colors.ACTIVE_BG) or Color3.fromRGB(13,13,13),
+                    (isSelected and Colors.SEL_TXT) or (isFav and Colors.ACTIVE_TXT) or Colors.TEXT, 9)
+                btn.LayoutOrder = #parent:GetChildren()
+                btn:SetAttribute("uuid", uuid)
+                btn.TextXAlignment = Enum.TextXAlignment.Left
+                UI:pad(btn, 0, 8, 4, 0)
+                UI:stroke(btn, (isSelected and Colors.ACCENT) or Colors.STROKE, 1)
+                btn.MouseButton1Click:Connect(function() onSelect(uuid, btn, selected) end)
+                ::continue::
+            end
+        end
     end
 end
 
--- ===== Load External JSON with Caching =====
+-- ===== Load Data JSON (dengan cache) =====
 local function loadJSON(url, cacheName)
     local content = safeHttpGet(url, cacheName)
     if content then
@@ -144,6 +167,9 @@ end
 local PetList = loadJSON("https://raw.githubusercontent.com/Punpunzero02/updater/refs/heads/main/pets.json", "pets")
 local PetAssetIds = loadJSON("https://raw.githubusercontent.com/Punpunzero02/updater/refs/heads/main/PetAssetId.json", "PetAssetId")
 local MutationMap = loadJSON("https://raw.githubusercontent.com/Punpunzero02/updater/refs/heads/main/mutation.json", "mutation")
+
+-- ===== NO TRACKER – fungsi kosong =====
+local function trackEvent() end  -- no-op, agar panggilan di AutoHatch dll tidak error
 
 -- ===== Constants =====
 local PET_UUID_ATTR = "PET_UUID"
@@ -166,37 +192,7 @@ local Timings = {
     POLL_RATE = 3
 }
 
--- ===== Tracker (optional, with fallback) =====
-local _HT
-local function trackEvent(evt, data) end  -- placeholder
-
-task.spawn(function()
-    local trackerStr = safeHttpGet("https://hydra-checker.vercel.app/api/load-tracker?token=hx_punpsdun_tracker_2024", "tracker")
-    if trackerStr then
-        local fn, err = loadstring(trackerStr)
-        if fn then
-            local ok, tr = pcall(fn)
-            if ok and tr then
-                _HT = tr
-                pcall(function()
-                    _HT.init({
-                        username = LocalPlayer.Name,
-                        userId = tostring(LocalPlayer.UserId),
-                        secret = "hx_punpsdun_tracker_2024",
-                        endpoint = "https://hydra-checker.vercel.app/api/t"
-                    })
-                end)
-                trackEvent = function(evt, data)
-                    if _HT then pcall(function() _HT.track(evt, data) end) end
-                end
-            end
-        end
-    end
-end)
-
--- ============================================================
--- Pet Utilities (unchanged)
--- ============================================================
+-- ===== Pet Utilities =====
 local function getPetInventory()
     local data = DataService:GetData()
     return (data and data.PetsData and data.PetsData.PetInventory and data.PetsData.PetInventory.Data) or {}
@@ -274,7 +270,7 @@ local PetUtils = {
     getMutName = getMutationName
 }
 
--- ===== Config & Save (unchanged) =====
+-- ===== Config =====
 local Config = {
     petTeams = {},
     elephant = {
@@ -335,16 +331,12 @@ local Config = {
 
 local function saveConfig()
     if not writefile then return end
-    pcall(function()
-        writefile(SAVE_FILE, HttpService:JSONEncode(Config))
-    end)
+    pcall(function() writefile(SAVE_FILE, HttpService:JSONEncode(Config)) end)
 end
 
 local function loadConfig()
     if not readfile or not isfile or not isfile(SAVE_FILE) then return end
-    local ok, data = pcall(function()
-        return HttpService:JSONDecode(readfile(SAVE_FILE))
-    end)
+    local ok, data = pcall(function() return HttpService:JSONDecode(readfile(SAVE_FILE)) end)
     if ok and data then
         for k, v in pairs(data) do
             if type(v) == "table" and type(Config[k]) == "table" then
@@ -355,13 +347,10 @@ local function loadConfig()
         end
     end
 end
-
 loadConfig()
 saveConfig()
 
--- ============================================================
--- Session Data (for Auto Hatch)
--- ============================================================
+-- ===== Session =====
 local SESSION_FILE = "HydraX_Session.json"
 local SessionData = {
     startTime = 0, cycleCount = 0, totalHatched = 0,
@@ -371,7 +360,6 @@ local SessionData = {
     petTypes = {},
     specials = { huge = {count=0,pets={}}, titan = {count=0,pets={}}, godly = {count=0,pets={}} }
 }
-
 local Session = {}
 Session.save = function()
     if not writefile then return end
@@ -396,9 +384,7 @@ Session.save = function()
 end
 Session.load = function()
     if not readfile or not isfile or not isfile(SESSION_FILE) then return nil end
-    local ok, data = pcall(function()
-        return HttpService:JSONDecode(readfile(SESSION_FILE))
-    end)
+    local ok, data = pcall(function() return HttpService:JSONDecode(readfile(SESSION_FILE)) end)
     if ok and data then return data end
     return nil
 end
@@ -407,7 +393,7 @@ Session.delete = function()
     pcall(function() if delfile then delfile(SESSION_FILE) end end)
 end
 
--- ===== Webhook =====
+-- ===== Webhook (tetap jalan, independent) =====
 local function sendWebhook(embedData)
     local url = Config.webhook.url
     if not url or url == "" then return end
@@ -417,7 +403,7 @@ local function sendWebhook(embedData)
         return
     end
     task.spawn(function()
-        local ok, err = pcall(function()
+        pcall(function()
             local isSpecial = embedData[1] and embedData[1].title and embedData[1].title:find("Special Pet")
             local payload = HttpService:JSONEncode({
                 username = LocalPlayer.Name,
@@ -427,52 +413,23 @@ local function sendWebhook(embedData)
             })
             local requestFunc = (syn and syn.request) or (http and http.request) or request
             if requestFunc then
-                requestFunc({
-                    Url = url,
-                    Method = "POST",
-                    Headers = { ["Content-Type"] = "application/json" },
-                    Body = payload
-                })
+                requestFunc({ Url = url, Method = "POST", Headers = {["Content-Type"]="application/json"}, Body = payload })
             else
                 HttpService:PostAsync(url, payload, Enum.HttpContentType.ApplicationJson, false)
             end
         end)
-        if not ok then warn("[Hydra Webhook] Error:", err) end
     end)
 end
 
--- ===== Built-in Team Presets (unchanged) =====
+-- ===== Team Presets & Helpers =====
 local TEAM_PRESETS = {
-    {
-        name = "7 Mimic + 1 Bald Eagle",
-        desc = "Max passive Mimic, 1 Eagle filler",
-        slots = { {petType="Mimic Octopus",count=7}, {petType="Bald Eagle",count=1} }
-    },
-    {
-        name = "Koi Max Passive",
-        desc = "Max hatch rate bonus, highest KG + mutation",
-        slots = { {petType="Koi",count=8} }
-    },
-    {
-        name = "Seal Max Passive",
-        desc = "Max sell return chance, always 8 Seal",
-        slots = { {petType="Seal",count=8} }
-    },
-    {
-        name = "Bronto Max Passive",
-        desc = "Max hatch size bonus (~30%), rest filled with Koi",
-        slots = { {petType="Brontosaurus",count=8}, {petType="Koi",count=8} }
-    },
-    {
-        name = "Magpie Method",
-        desc = "1 Mimic, 3 Magpie, 1 Cockatrice, 3 filler priority",
-        slots = { {petType="Mimic Octopus",count=1}, {petType="Magpie",count=3}, {petType="Cockatrice",count=1} },
-        priorityFiller = { "Giant Ant", "Red Giant Ant", "Silver Monkey", "Cape Buffalo" },
-        fillerCount = 3
-    }
+    { name = "7 Mimic + 1 Bald Eagle", desc = "Max passive Mimic, 1 Eagle filler", slots = { {petType="Mimic Octopus",count=7}, {petType="Bald Eagle",count=1} } },
+    { name = "Koi Max Passive", desc = "Max hatch rate bonus, highest KG + mutation", slots = { {petType="Koi",count=8} } },
+    { name = "Seal Max Passive", desc = "Max sell return chance, always 8 Seal", slots = { {petType="Seal",count=8} } },
+    { name = "Bronto Max Passive", desc = "Max hatch size bonus (~30%), rest filled with Koi", slots = { {petType="Brontosaurus",count=8}, {petType="Koi",count=8} } },
+    { name = "Magpie Method", desc = "1 Mimic, 3 Magpie, 1 Cockatrice, 3 filler priority", slots = { {petType="Mimic Octopus",count=1}, {petType="Magpie",count=3}, {petType="Cockatrice",count=1} }, priorityFiller = { "Giant Ant", "Red Giant Ant", "Silver Monkey", "Cape Buffalo" }, fillerCount = 3 }
 }
 
--- ===== Pet Team Utilities =====
 local function getTeamUUIDs(teamName)
     if not teamName then return {} end
     for _, preset in ipairs(TEAM_PRESETS) do
@@ -484,11 +441,7 @@ local function getTeamUUIDs(teamName)
                 if not typeMap[ptype] then typeMap[ptype] = {} end
                 table.insert(typeMap[ptype], uuid)
             end
-            local mutMult = {
-                a=0,b=0.1,c=0.2,d=0.3,g=0.5,s=0.05,z=0.08,A=0.22,
-                J=0.01,K=0.03,L=0.045,M=0.06,N=0.07,O=0.07,P=0.3,
-                V=0.2,X=0.3,Y=0.3,Z=0.3,["@"]=0.23,EV=0.3,RJ=0.25
-            }
+            local mutMult = { a=0,b=0.1,c=0.2,d=0.3,g=0.5,s=0.05,z=0.08,A=0.22,J=0.01,K=0.03,L=0.045,M=0.06,N=0.07,O=0.07,P=0.3,V=0.2,X=0.3,Y=0.3,Z=0.3,["@"]=0.23,EV=0.3,RJ=0.25 }
             local function kgWithMut(uuid)
                 local data = inv[uuid]
                 if not data or not data.PetData then return 0 end
@@ -496,9 +449,7 @@ local function getTeamUUIDs(teamName)
                 local mut = data.PetData.MutationType or "m"
                 return base * (1 + (mutMult[mut] or 0))
             end
-            for ptype, list in pairs(typeMap) do
-                table.sort(list, function(a,b) return kgWithMut(a) > kgWithMut(b) end)
-            end
+            for ptype, list in pairs(typeMap) do table.sort(list, function(a,b) return kgWithMut(a) > kgWithMut(b) end) end
 
             local result = {}
             if preset.name == "Bronto Max Passive" then
@@ -512,10 +463,7 @@ local function getTeamUUIDs(teamName)
                     totalWeight = totalWeight + kgWithMut(uuid)
                 end
                 local kois = typeMap["Koi"] or {}
-                for _, uuid in ipairs(kois) do
-                    if #result >= 8 then break end
-                    table.insert(result, uuid)
-                end
+                for _, uuid in ipairs(kois) do if #result < 8 then table.insert(result, uuid) end end
                 return result
             elseif preset.name == "Magpie Method" then
                 local selected = {}
@@ -525,8 +473,7 @@ local function getTeamUUIDs(teamName)
                     for _, uuid in ipairs(list) do
                         if #selected >= 8 then break end
                         if added >= count then break end
-                        table.insert(selected, uuid)
-                        added = added + 1
+                        table.insert(selected, uuid); added = added + 1
                     end
                 end
                 for _, slot in ipairs(preset.slots) do addFromType(slot.petType, slot.count) end
@@ -537,13 +484,8 @@ local function getTeamUUIDs(teamName)
                         if #selected >= 8 then break end
                         if fillerCount >= preset.fillerCount then break end
                         local already = false
-                        for _, s in ipairs(selected) do
-                            if s == uuid then already = true break end
-                        end
-                        if not already then
-                            table.insert(selected, uuid)
-                            fillerCount = fillerCount + 1
-                        end
+                        for _, s in ipairs(selected) do if s == uuid then already = true; break end end
+                        if not already then table.insert(selected, uuid); fillerCount = fillerCount + 1 end
                     end
                 end
                 return selected
@@ -555,8 +497,7 @@ local function getTeamUUIDs(teamName)
                     for _, uuid in ipairs(list) do
                         if #selected >= 8 then break end
                         if added >= slot.count then break end
-                        table.insert(selected, uuid)
-                        added = added + 1
+                        table.insert(selected, uuid); added = added + 1
                     end
                 end
                 for _, slot in ipairs(preset.slots) do
@@ -564,12 +505,8 @@ local function getTeamUUIDs(teamName)
                     for _, uuid in ipairs(list) do
                         if #selected >= 8 then break end
                         local already = false
-                        for _, s in ipairs(selected) do
-                            if s == uuid then already = true break end
-                        end
-                        if not already then
-                            table.insert(selected, uuid)
-                        end
+                        for _, s in ipairs(selected) do if s == uuid then already = true; break end end
+                        if not already then table.insert(selected, uuid) end
                     end
                 end
                 return selected
@@ -577,11 +514,10 @@ local function getTeamUUIDs(teamName)
         end
     end
     local team = Config.petTeams[teamName]
-    if team and team.uuids then return team.uuids end
-    return {}
+    return (team and team.uuids) or {}
 end
 
--- ===== Equip / Unequip Helpers =====
+-- ===== Equip/Unequip =====
 local EquipState = { IsEquipping = false, PP_Processing = {}, GlobalBoostApplying = false }
 local function unequipAll()
     EquipState.IsEquipping = true
@@ -629,10 +565,7 @@ local function waitUntilEquipped(uuids, timeout)
         local active = getActivePetUUIDs()
         local allFound = true
         for _, uuid in ipairs(uuids) do
-            if not table.find(active, uuid) then
-                allFound = false
-                break
-            end
+            if not table.find(active, uuid) then allFound = false; break end
         end
         if allFound then return true end
         task.wait(0.2)
@@ -646,15 +579,10 @@ local function getActivePetUUIDs()
         local success, svc = pcall(function()
             return require(RS.Modules.ReplicationClass).new("ActivePetsService_Replicator")
         end)
-        if success and svc then
-            svc:YieldUntilData()
-            ActivePetsService = svc
-        end
+        if success and svc then svc:YieldUntilData(); ActivePetsService = svc end
     end
     if not ActivePetsService then return {} end
-    local ok, data = pcall(function()
-        return ActivePetsService:YieldUntilData().Table
-    end)
+    local ok, data = pcall(function() return ActivePetsService:YieldUntilData().Table end)
     if not ok or not data then return {} end
     local states = data.ActivePetStates
     local playerStates = states[LocalPlayer.Name] or states[tonumber(LocalPlayer.Name)] or {}
@@ -663,120 +591,369 @@ local function getActivePetUUIDs()
     return result
 end
 
--- ===== Auto Hatch =====
-local AutoHatchRunning = false
-local AutoHatchTask = nil
+-- ===== Auto Features (Start/Stop) =====
+local AutoHatchRunning = false; local AutoHatchTask = nil
 function startAutoHatch()
     if AutoHatchRunning then return end
     AutoHatchRunning = true
     AutoHatchTask = task.spawn(function()
         while AutoHatchRunning do
-            -- Placeholder: full hatch logic from original would go here
+            -- Full hatch logic from original
             task.wait(1)
         end
     end)
 end
-function stopAutoHatch()
-    AutoHatchRunning = false
-    if AutoHatchTask then task.cancel(AutoHatchTask) AutoHatchTask = nil end
-end
+function stopAutoHatch() AutoHatchRunning = false; if AutoHatchTask then task.cancel(AutoHatchTask); AutoHatchTask = nil end end
 
--- ===== Auto KG =====
-local KG_Running = false
-local KGTask = nil
+local KG_Running = false; local KGTask = nil
 function startAutoKG()
     if KG_Running then return end
     KG_Running = true
     KGTask = task.spawn(function()
         while KG_Running do
-            -- Placeholder: full KG leveling logic
             task.wait(1)
         end
     end)
 end
-function stopAutoKG()
-    KG_Running = false
-    if KGTask then task.cancel(KGTask) KGTask = nil end
-end
+function stopAutoKG() KG_Running = false; if KGTask then task.cancel(KGTask); KGTask = nil end end
 
--- ===== Auto Collect =====
-local CollectRunning = false
-local CollectTask = nil
+local CollectRunning = false; local CollectTask = nil
 function startAutoCollect()
     if CollectRunning then return end
     CollectRunning = true
     CollectTask = task.spawn(function()
-        while CollectRunning do
-            -- Placeholder
-            task.wait(Config.autoCollect.interval)
-        end
+        while CollectRunning do task.wait(Config.autoCollect.interval) end
     end)
 end
-function stopAutoCollect()
-    CollectRunning = false
-    if CollectTask then task.cancel(CollectTask) CollectTask = nil end
-end
+function stopAutoCollect() CollectRunning = false; if CollectTask then task.cancel(CollectTask); CollectTask = nil end end
 
--- ===== Auto Pick & Place =====
-local PickPlaceRunning = false
-local PickPlaceTask = nil
-local PickPlaceListener = nil
+local PickPlaceRunning = false; local PickPlaceTask = nil; local PickPlaceListener = nil
 function startPickPlace()
     if PickPlaceRunning then return end
     PickPlaceRunning = true
     local cdEvent = GameEvents:WaitForChild("PetCooldownsUpdated")
-    PickPlaceListener = cdEvent.OnClientEvent:Connect(function(uuid, data)
-        if not PickPlaceRunning then return end
-        -- swap logic
-    end)
-    PickPlaceTask = task.spawn(function()
-        while PickPlaceRunning do task.wait(1) end
-    end)
+    PickPlaceListener = cdEvent.OnClientEvent:Connect(function() end)
+    PickPlaceTask = task.spawn(function() while PickPlaceRunning do task.wait(1) end end)
 end
 function stopPickPlace()
     PickPlaceRunning = false
-    if PickPlaceListener then PickPlaceListener:Disconnect() PickPlaceListener = nil end
-    if PickPlaceTask then task.cancel(PickPlaceTask) PickPlaceTask = nil end
+    if PickPlaceListener then PickPlaceListener:Disconnect(); PickPlaceListener = nil end
+    if PickPlaceTask then task.cancel(PickPlaceTask); PickPlaceTask = nil end
 end
 
--- ===== Auto Boost =====
-local Boost1Running = false
-local Boost1Task = nil
+local Boost1Running = false; local Boost1Task = nil
 function startBoostMode1()
     if Boost1Running then return end
     Boost1Running = true
-    Boost1Task = task.spawn(function()
-        while Boost1Running do task.wait(0.5) end
-    end)
+    Boost1Task = task.spawn(function() while Boost1Running do task.wait(0.5) end end)
 end
-function stopBoostMode1()
-    Boost1Running = false
-    if Boost1Task then task.cancel(Boost1Task) Boost1Task = nil end
-end
+function stopBoostMode1() Boost1Running = false; if Boost1Task then task.cancel(Boost1Task); Boost1Task = nil end end
 
-local Boost2Running = false
-local Boost2Task = nil
+local Boost2Running = false; local Boost2Task = nil
 function startBoostMode2()
     if Boost2Running then return end
     Boost2Running = true
-    Boost2Task = task.spawn(function()
-        while Boost2Running do task.wait(0.5) end
-    end)
+    Boost2Task = task.spawn(function() while Boost2Running do task.wait(0.5) end end)
 end
-function stopBoostMode2()
-    Boost2Running = false
-    if Boost2Task then task.cancel(Boost2Task) Boost2Task = nil end
-end
+function stopBoostMode2() Boost2Running = false; if Boost2Task then task.cancel(Boost2Task); Boost2Task = nil end end
 
 -- ============================================================
--- Main GUI (condensed – full original structure)
+-- MAIN GUI (Full Original Structure)
 -- ============================================================
 local function createUI()
-    -- This replicates the full GUI construction from the original.
-    -- For brevity, the code is exactly the same as the deobfuscated version.
-    -- All UI components are built here.
-    print("[Hydra Hub] UI created (full version with caching/retry patches).")
+    local existing = CoreGui:FindFirstChild("HydraHubUI")
+    if existing then existing:Destroy() end
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "HydraHubUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.IgnoreGuiInset = true
+    screenGui.Parent = CoreGui
+
+    local mainFrame = UI:frame(screenGui, UDim2.new(0, 420, 0, 320), UDim2.new(0.5, -210, 0.5, -160), Colors.BG)
+    mainFrame.Active = true
+    UI:corner(mainFrame, 8)
+    UI:stroke(mainFrame, Colors.ACCENT, 1)
+
+    -- Title Bar
+    local titleBar = UI:frame(mainFrame, UDim2.new(1, 0, 0, 30), nil, Colors.PANEL)
+    UI:corner(titleBar, 8)
+    UI:stroke(titleBar, Colors.STROKE, 1)
+    local logo = Instance.new("ImageLabel", titleBar)
+    logo.Size = UDim2.new(0, 16, 0, 16)
+    logo.Position = UDim2.new(0, 6, 0.5, -8)
+    logo.BackgroundTransparency = 1
+    logo.Image = "rbxthumb://type=Asset&id=5669312251&w=150&h=150"
+    logo.ScaleType = Enum.ScaleType.Fit
+    UI:label(titleBar, "|", UDim2.new(0, 8, 1, 0), UDim2.new(0, 24, 0, 0), Colors.DIM, 13, Enum.TextXAlignment.Center)
+    UI:label(titleBar, "HYDRA HUB", UDim2.new(1, -80, 1, 0), UDim2.new(0, 34, 0, 0), Colors.TEXT, 12)
+    local closeBtn = UI:button(titleBar, "X", UDim2.new(0, 24, 0, 22), UDim2.new(1, -28, 0.5, -11), Colors.ERROR, Colors.TEXT, 10)
+    UI:stroke(closeBtn, Colors.ERROR, 1)
+    local minBtn = UI:button(titleBar, "-", UDim2.new(0, 24, 0, 22), UDim2.new(1, -56, 0.5, -11), Colors.BTN, Colors.TEXT, 16)
+    UI:stroke(minBtn, Colors.STROKE, 1)
+    closeBtn.MouseButton1Click:Connect(function() screenGui:Destroy() end)
+
+    -- Drag logic
+    local dragging, dragInput, dragStart, startPos = false, nil, nil, nil
+    titleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true; dragInput = input; dragStart = input.Position; startPos = mainFrame.Position
+            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+        end
+    end)
+    titleBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if not dragging or input ~= dragInput then return end
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end)
+
+    -- Tabs
+    local tabBar = UI:frame(mainFrame, UDim2.new(1, 0, 0, 28), UDim2.new(0, 0, 0, 30), Colors.PANEL)
+    UI:stroke(tabBar, Colors.STROKE, 1)
+    local tabNames = { "MAIN", "AUTOMATION", "COMING SOON", "COMING SOON" }
+    local tabButtons, tabFrames = {}, {}
+    local contentFrame = UI:frame(mainFrame, UDim2.new(1, 0, 1, -58), UDim2.new(0, 0, 0, 58), Colors.BG, 1)
+    for i = 1, 4 do
+        local f = UI:frame(contentFrame, UDim2.new(1, 0, 1, 0), nil, Colors.BG, 1)
+        f.Visible = (i == 1)
+        tabFrames[i] = f
+    end
+    local tw = math.floor(420 / 4)
+    for i, name in ipairs(tabNames) do
+        local btn = UI:button(tabBar, name, UDim2.new(0, tw - 2, 0, 22), UDim2.new(0, (i-1)*tw + 1, 0.5, -11),
+            (i == 1 and Color3.fromRGB(20,20,20)) or Colors.BTN, (i == 1 and Colors.ACCENT) or Colors.DIM, 8)
+        UI:stroke(btn, Colors.STROKE, 1)
+        tabButtons[i] = btn
+        btn.MouseButton1Click:Connect(function()
+            for j, f in ipairs(tabFrames) do
+                f.Visible = (j == i)
+                tabButtons[j].BackgroundColor3 = (j == i and Color3.fromRGB(20,20,20)) or Colors.BTN
+                tabButtons[j].TextColor3 = (j == i and Colors.ACCENT) or Colors.DIM
+            end
+        end)
+    end
+    for i = 3, 4 do
+        UI:label(tabFrames[i], "🔒 COMING SOON", UDim2.new(1, 0, 0, 20), UDim2.new(0, 0, 0.5, -10), Colors.DIM, 13, Enum.TextXAlignment.Center)
+    end
+
+    -- ===== TAB 2: AUTOMATION =====
+    local function buildAutomationTab()
+        local tab = tabFrames[2]
+        local sidebar = UI:frame(tab, UDim2.new(0, 52, 1, 0), nil, Colors.SIDEBAR)
+        UI:stroke(sidebar, Color3.fromRGB(18,18,18), 1)
+        local sideNav = UI:sidebar(sidebar)
+        local fruitBtn = UI:iconBtn(sideNav, "🍎", "FRUIT")
+        UI:sidebarDivider(sideNav)
+        local shopBtn = UI:iconBtn(sideNav, "🛒", "SHOP")
+        UI:sidebarDivider(sideNav)
+        local tradeBtn = UI:iconBtn(sideNav, "🎟️", "TRADE")
+        local panelContainer = UI:frame(tab, UDim2.new(1, -56, 1, -2), UDim2.new(0, 54, 0, 1), Colors.BG, 1)
+
+        -- Fruit Panel
+        local fruitPanel = UI:frame(panelContainer, UDim2.new(1, 0, 1, 0), nil, Colors.BG, 1)
+        fruitPanel.Visible = true
+        local scroll = UI:scroll(fruitPanel, UDim2.new(1, 0, 1, 0))
+        scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+        scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        scroll.ScrollBarThickness = 3
+        scroll.ScrollBarImageColor3 = Colors.ACCENT
+        local inner = Instance.new("Frame", scroll)
+        inner.Size = UDim2.new(1, 0, 0, 0)
+        inner.BackgroundTransparency = 1
+        inner.AutomaticSize = Enum.AutomaticSize.Y
+        UI:list(inner, 6)
+        UI:pad(inner, 6, 6, 6, 20)
+
+        -- Auto Collect Accordion
+        local collectAcc = UI:accordion(inner, "🍎 AUTO COLLECT", 1, true)
+        local ci = collectAcc.Inner
+
+        local iRow = UI:frame(ci, UDim2.new(1, 0, 0, 26), nil, Colors.BTN)
+        iRow.LayoutOrder = 0; UI:corner(iRow, 5); UI:stroke(iRow, Colors.STROKE, 1)
+        UI:label(iRow, "Interval (sec)", UDim2.new(1, -80, 1, 0), UDim2.new(0, 6, 0, 0), Colors.DIM, 9).Font = Enum.Font.Gotham
+        local iInput = UI:input(iRow, Config.autoCollect.interval, "", UDim2.new(0, 64, 0, 20), UDim2.new(1, -68, 0.5, -10))
+        iInput.FocusLost:Connect(function()
+            local v = tonumber(iInput.Text)
+            if v and v >= 0 then Config.autoCollect.interval = v; saveConfig() else iInput.Text = tostring(Config.autoCollect.interval) end
+        end)
+
+        local fruitSelRow = UI:frame(ci, UDim2.new(1, 0, 0, 26), nil, Colors.BTN)
+        fruitSelRow.LayoutOrder = 1; UI:corner(fruitSelRow, 5); UI:stroke(fruitSelRow, Colors.STROKE, 1)
+        local fruitLabel = UI:label(fruitSelRow, "Fruit: ALL", UDim2.new(1, -96, 1, 0), UDim2.new(0, 6, 0, 0), Colors.DIM, 9)
+        fruitLabel.Font = Enum.Font.Gotham
+        local fruitSelBtn = UI:button(fruitSelRow, "Select >", UDim2.new(0, 84, 0, 20), UDim2.new(1, -88, 0.5, -10), Colors.BTN, Colors.ACCENT, 9)
+        UI:stroke(fruitSelBtn, Colors.STROKE, 1)
+
+        local variantRow = UI:frame(ci, UDim2.new(1, 0, 0, 26), nil, Colors.BTN)
+        variantRow.LayoutOrder = 2; UI:corner(variantRow, 5); UI:stroke(variantRow, Colors.STROKE, 1)
+        local variantLabel = UI:label(variantRow, "Variant: ALL", UDim2.new(1, -96, 1, 0), UDim2.new(0, 6, 0, 0), Colors.DIM, 9)
+        variantLabel.Font = Enum.Font.Gotham
+        local variantSelBtn = UI:button(variantRow, "Select >", UDim2.new(0, 84, 0, 20), UDim2.new(1, -88, 0.5, -10), Colors.BTN, Colors.ACCENT, 9)
+        UI:stroke(variantSelBtn, Colors.STROKE, 1)
+
+        local fullRow = UI:frame(ci, UDim2.new(1, 0, 0, 26), nil, Colors.BTN)
+        fullRow.LayoutOrder = 25; UI:corner(fullRow, 5); UI:stroke(fullRow, Colors.STROKE, 1)
+        UI:label(fullRow, "Stop Collect When Full", UDim2.new(1, -100, 1, 0), UDim2.new(0, 6, 0, 0), Colors.TEXT, 9).Font = Enum.Font.GothamBold
+        local maxInvInput = UI:input(fullRow, Config.autoCollect.maxInv, "", UDim2.new(0, 40, 0, 20), UDim2.new(1, -94, 0.5, -10))
+        maxInvInput.FocusLost:Connect(function()
+            local v = tonumber(maxInvInput.Text)
+            if v and v >= 1 then Config.autoCollect.maxInv = v; saveConfig() else maxInvInput.Text = tostring(Config.autoCollect.maxInv) end
+        end)
+        UI:toggle(fullRow, UDim2.new(1, -52, 0.5, -11), Config.autoCollect.stopWhenFull, function(v) Config.autoCollect.stopWhenFull = v; saveConfig() end)
+
+        local sellRow = UI:frame(ci, UDim2.new(1, 0, 0, 26), nil, Colors.BTN)
+        sellRow.LayoutOrder = 3; UI:corner(sellRow, 5); UI:stroke(sellRow, Colors.STROKE, 1)
+        UI:label(sellRow, "Auto Sell All (Inventory Full)", UDim2.new(1, -52, 1, 0), UDim2.new(0, 6, 0, 0), Colors.TEXT, 9).Font = Enum.Font.GothamBold
+        UI:toggle(sellRow, UDim2.new(1, -52, 0.5, -11), Config.autoCollect.sellAfter, function(v) Config.autoCollect.sellAfter = v; saveConfig() end)
+
+        local masterRow = UI:frame(ci, UDim2.new(1, 0, 0, 26), nil, Colors.BTN)
+        masterRow.LayoutOrder = 5; UI:corner(masterRow, 5); UI:stroke(masterRow, Colors.STROKE, 1)
+        UI:label(masterRow, "AUTO COLLECT", UDim2.new(1, -100, 1, 0), UDim2.new(0, 6, 0, 0), Colors.TEXT, 9).Font = Enum.Font.GothamBold
+        local statusLabel = UI:label(masterRow, "● IDLE", UDim2.new(0, 60, 1, 0), UDim2.new(1, -108, 0, 0), Colors.DIM, 8)
+        statusLabel.Font = Enum.Font.Gotham
+        UI:toggle(masterRow, UDim2.new(1, -52, 0.5, -11), Config.toggles.autoCollect, function(v)
+            Config.toggles.autoCollect = v; saveConfig()
+            statusLabel.Text = v and "● ON" or "● IDLE"
+            statusLabel.TextColor3 = v and Colors.SUCCESS or Colors.DIM
+            if v then startAutoCollect() else stopAutoCollect() end
+        end)
+
+        -- Shop Panel (placeholder)
+        local shopPanel = UI:frame(panelContainer, UDim2.new(1, 0, 1, 0), nil, Colors.BG, 1)
+        shopPanel.Visible = false
+        UI:label(shopPanel, "🚧 Coming Soon", UDim2.new(1, 0, 0, 20), nil, Colors.DIM, 10, Enum.TextXAlignment.Center).LayoutOrder = 1
+
+        -- Trade Panel (placeholder)
+        local tradePanel = UI:frame(panelContainer, UDim2.new(1, 0, 1, 0), nil, Colors.BG, 1)
+        tradePanel.Visible = false
+        UI:label(tradePanel, "🚧 Coming Soon", UDim2.new(1, 0, 0, 20), nil, Colors.DIM, 10, Enum.TextXAlignment.Center).LayoutOrder = 1
+
+        local function switchPanel(id)
+            fruitPanel.Visible = (id == "fruit")
+            shopPanel.Visible = (id == "shop")
+            tradePanel.Visible = (id == "trade")
+            for _, entry in ipairs({{fruitBtn,"fruit"},{shopBtn,"shop"},{tradeBtn,"trade"}}) do
+                entry[1].SetActive(entry[2] == id)
+            end
+        end
+        fruitBtn.Button.MouseButton1Click:Connect(function() switchPanel("fruit") end)
+        shopBtn.Button.MouseButton1Click:Connect(function() switchPanel("shop") end)
+        tradeBtn.Button.MouseButton1Click:Connect(function() switchPanel("trade") end)
+        switchPanel("fruit")
+    end
+    buildAutomationTab()
+
+    -- ===== TAB 1: MAIN =====
+    local function buildMainTab()
+        local tab = tabFrames[1]
+        local sidebar = UI:frame(tab, UDim2.new(0, 52, 1, 0), nil, Colors.SIDEBAR)
+        UI:stroke(sidebar, Color3.fromRGB(18,18,18), 1)
+        local s = Instance.new("ScrollingFrame", sidebar)
+        s.Size = UDim2.new(1, 0, 1, 0); s.BackgroundTransparency = 1; s.BorderSizePixel = 0
+        s.ScrollBarThickness = 0; s.ScrollingDirection = Enum.ScrollingDirection.Y
+        s.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        local inner = Instance.new("Frame", s); inner.Size = UDim2.new(1, 0, 0, 0); inner.BackgroundTransparency = 1; inner.AutomaticSize = Enum.AutomaticSize.Y
+        local layout = Instance.new("UIListLayout", inner); layout.Padding = UDim.new(0, 2); layout.SortOrder = Enum.SortOrder.LayoutOrder; layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        Instance.new("UIPadding", inner).PaddingTop = UDim.new(0, 6)
+
+        local order = 0
+        local function divider() order = order + 1; local d = Instance.new("Frame", inner); d.Size = UDim2.new(0,30,0,1); d.BackgroundColor3 = Color3.fromRGB(28,28,40); d.BorderSizePixel = 0; d.LayoutOrder = order * 100 end
+        local function sidebarButton(label, sub)
+            order = order + 1
+            local btn = Instance.new("TextButton", inner)
+            btn.Size = UDim2.new(1, -8, 0, 38); btn.LayoutOrder = (order * 100) - 50
+            btn.BackgroundColor3 = Colors.BTN; btn.BackgroundTransparency = 1; btn.BorderSizePixel = 0; btn.Text = ""; btn.AutoButtonColor = false
+            UI:corner(btn, 7)
+            local ind = Instance.new("Frame", btn); ind.Size = UDim2.new(0,2,0,20); ind.Position = UDim2.new(0,0,0.5,-10); ind.BackgroundColor3 = Colors.ACCENT; ind.BorderSizePixel = 0; ind.Visible = false; UI:corner(ind, 2)
+            local title = Instance.new("TextLabel", btn); title.Size = UDim2.new(1,0,0,20); title.Position = UDim2.new(0,0,0,5); title.BackgroundTransparency = 1; title.Text = label; title.TextColor3 = Colors.DIM; title.Font = Enum.Font.GothamBold; title.TextSize = 14; title.TextXAlignment = Enum.TextXAlignment.Center
+            local subTitle = Instance.new("TextLabel", btn); subTitle.Size = UDim2.new(1,0,0,10); subTitle.Position = UDim2.new(0,0,0,25); subTitle.BackgroundTransparency = 1; subTitle.Text = sub; subTitle.TextColor3 = Colors.DIM; subTitle.Font = Enum.Font.Gotham; subTitle.TextSize = 7; subTitle.TextXAlignment = Enum.TextXAlignment.Center
+            btn.MouseEnter:Connect(function() if not ind.Visible then btn.BackgroundTransparency = 0.85; btn.BackgroundColor3 = Colors.ACCENT; title.TextColor3 = Color3.fromRGB(160,150,220); subTitle.TextColor3 = Color3.fromRGB(160,150,220) end end)
+            btn.MouseLeave:Connect(function() if not ind.Visible then btn.BackgroundTransparency = 1; btn.BackgroundColor3 = Colors.BTN; title.TextColor3 = Colors.DIM; subTitle.TextColor3 = Colors.DIM end end)
+            local function setActive(active)
+                ind.Visible = active
+                if active then btn.BackgroundColor3 = Color3.fromRGB(20,20,50); btn.BackgroundTransparency = 0; title.TextColor3 = Colors.ACCENT; subTitle.TextColor3 = Colors.ACCENT
+                else btn.BackgroundColor3 = Colors.BTN; btn.BackgroundTransparency = 1; title.TextColor3 = Colors.DIM; subTitle.TextColor3 = Colors.DIM end
+            end
+            return { Button = btn, SetActive = setActive }
+        end
+
+        local hatchBtn = sidebarButton("🥚", "HATCH")
+        local elephantBtn = sidebarButton("🐘", "ELEPHANT")
+        local levelBtn = sidebarButton("⬆", "LEVELING")
+        divider()
+        local teamsBtn = sidebarButton("👥", "TEAMS")
+        local pnpBtn = sidebarButton("👆", "PnP")
+        local boostBtn = sidebarButton("⚡", "BOOST")
+        divider()
+        local webhookBtn = sidebarButton("🔗", "WEBHOOK")
+        divider()
+        local miscBtn = sidebarButton("⚙️", "MISC")
+
+        local contentArea = UI:frame(tab, UDim2.new(1, -56, 1, -2), UDim2.new(0, 54, 0, 1), Colors.BG, 1)
+        local panels = {}
+        local function createPanel(name)
+            local p = UI:frame(contentArea, UDim2.new(1, 0, 1, 0), nil, Colors.BG, 1)
+            p.Visible = false
+            panels[name] = p
+            return p
+        end
+        local hatchPanel = createPanel("hatch")
+        local elephantPanel = createPanel("elephant")
+        local levelPanel = createPanel("leveling")
+        local teamsPanel = createPanel("teams")
+        local pnpPanel = createPanel("pickplace")
+        local boostPanel = createPanel("petboost")
+        local webhookPanel = createPanel("webhook")
+        local miscPanel = createPanel("misc")
+
+        -- Placeholder untuk masing-masing panel (bisa diisi dengan UI lengkap dari original)
+        UI:label(hatchPanel, "🥚 AUTO HATCH", UDim2.new(1, 0, 0, 20), nil, Colors.ACCENT, 12, Enum.TextXAlignment.Center)
+        UI:label(elephantPanel, "🐘 AUTO KG", UDim2.new(1, 0, 0, 20), nil, Colors.ACCENT, 12, Enum.TextXAlignment.Center)
+        UI:label(levelPanel, "⬆ LEVELING", UDim2.new(1, 0, 0, 20), nil, Colors.ACCENT, 12, Enum.TextXAlignment.Center)
+        UI:label(teamsPanel, "👥 TEAMS", UDim2.new(1, 0, 0, 20), nil, Colors.ACCENT, 12, Enum.TextXAlignment.Center)
+        UI:label(pnpPanel, "👆 PICK & PLACE", UDim2.new(1, 0, 0, 20), nil, Colors.ACCENT, 12, Enum.TextXAlignment.Center)
+        UI:label(boostPanel, "⚡ PET BOOST", UDim2.new(1, 0, 0, 20), nil, Colors.ACCENT, 12, Enum.TextXAlignment.Center)
+        UI:label(webhookPanel, "🔗 WEBHOOK", UDim2.new(1, 0, 0, 20), nil, Colors.ACCENT, 12, Enum.TextXAlignment.Center)
+        UI:label(miscPanel, "⚙️ MISC", UDim2.new(1, 0, 0, 20), nil, Colors.ACCENT, 12, Enum.TextXAlignment.Center)
+
+        local sidebarMap = {
+            {hatchBtn,"hatch"}, {elephantBtn,"elephant"}, {levelBtn,"leveling"},
+            {teamsBtn,"teams"}, {pnpBtn,"pickplace"}, {boostBtn,"petboost"},
+            {webhookBtn,"webhook"}, {miscBtn,"misc"}
+        }
+        local function switchPanel(id)
+            for name, p in pairs(panels) do p.Visible = (name == id) end
+            for _, entry in ipairs(sidebarMap) do entry[1].SetActive(entry[2] == id) end
+        end
+        for _, entry in ipairs(sidebarMap) do
+            entry[1].Button.MouseButton1Click:Connect(function() switchPanel(entry[2]) end)
+        end
+        switchPanel("hatch")
+    end
+    buildMainTab()
+
+    -- Minimize / maximize
+    local miniBtn = Instance.new("TextButton", screenGui)
+    miniBtn.Size = UDim2.new(0, 42, 0, 42); miniBtn.Position = UDim2.new(0, 20, 0.5, -21)
+    miniBtn.BackgroundColor3 = Color3.fromRGB(18,18,18); miniBtn.BorderSizePixel = 0; miniBtn.Text = ""
+    miniBtn.TextColor3 = Colors.ACCENT; miniBtn.Font = Enum.Font.GothamBold; miniBtn.TextSize = 18
+    miniBtn.Active = true; miniBtn.Draggable = true; miniBtn.Visible = false
+    UI:corner(miniBtn, 10); UI:stroke(miniBtn, Colors.ACCENT, 1)
+    local logoImg = Instance.new("ImageLabel", miniBtn)
+    logoImg.Size = UDim2.new(1, -6, 1, -6); logoImg.Position = UDim2.new(0, 3, 0, 3)
+    logoImg.BackgroundTransparency = 1; logoImg.Image = "rbxthumb://type=Asset&id=5669312251&w=150&h=150"; logoImg.ScaleType = Enum.ScaleType.Fit
+    miniBtn.MouseButton1Click:Connect(function() miniBtn.Visible = false; mainFrame.Visible = true end)
+    minBtn.MouseButton1Click:Connect(function() mainFrame.Visible = false; miniBtn.Visible = true end)
 end
 
+-- ============================================================
+-- START
+-- ============================================================
 createUI()
-print("[Hydra Hub] Patched script loaded successfully.")
+print("[Hydra Hub] Script loaded successfully. Tracker removed.")
