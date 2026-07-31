@@ -1,9 +1,4 @@
-
 -- HYDRA LITE
-
-
-
-
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
@@ -12,24 +7,15 @@ local CoreGui = game:GetService("CoreGui")
 local CS = game:GetService("CollectionService")
 local UIS = game:GetService("UserInputService")
 
-
-
-
 local LocalPlayer = Players.LocalPlayer
 local Backpack = LocalPlayer:WaitForChild("Backpack")
 local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 LocalPlayer.CharacterAdded:Connect(function(char) Character = char end)
 
-
-
-
 local DataService = require(RS.Modules.DataService)
 local PetsRemote = RS:WaitForChild("GameEvents"):WaitForChild("PetsService")
 local BoostRemote = RS:WaitForChild("GameEvents"):WaitForChild("PetBoostService")
 local PetEggService = RS:WaitForChild("GameEvents"):WaitForChild("PetEggService")
-
-
-
 
 local Library
 do
@@ -94,9 +80,6 @@ if not Library.buildPetList then
  end
 end
 
-
-
-
 local T = {
  BG = Color3.fromRGB(18, 18, 31),
  PANEL = Color3.fromRGB(12, 12, 20),
@@ -119,9 +102,6 @@ local T = {
 }
 UI.T = T
 
-
-
-
 local TIMING = {
  EQUIP_DELAY = 0.08,
  UNEQUIP_DELAY = 0.05,
@@ -135,9 +115,6 @@ local TIMING = {
  AH_SEAL_POST_SELL = 2,
  POLL_RATE = 3,
 }
-
-
-
 
 local CONFIG_FILE = "HydraLite_Config.json"
 
@@ -332,9 +309,6 @@ if cfg.autoHatch.koiPostHatch then TIMING.AH_KOI_POST_HATCH = cfg.autoHatch.koiP
 if cfg.autoHatch.sealSafeDelay then TIMING.AH_SEAL_SAFE_DELAY = cfg.autoHatch.sealSafeDelay end
 if cfg.autoHatch.sealPostSell then TIMING.AH_SEAL_POST_SELL = cfg.autoHatch.sealPostSell end
 
-
-
-
 local PET_UUID_KEY = "PET_UUID"
 local FAV_KEY = "d"
 
@@ -413,9 +387,6 @@ local function getMutName(uuid)
  if mut == "" or mut == "m" then return "" end
  return MutJSON[mut] or mut
 end
-
-
-
 
 local trackerToken = "hx_punpsdun_tracker_2024"
 local trackerEndpoint = "https://hydra-checker.vercel.app/api/t"
@@ -579,9 +550,6 @@ local function sendSpecialWebhook(petName, kg, brontoKG, age, eggName)
  }})
 end
 
-
-
-
 local SESSION_FILE = "HydraLite_Session.json"
 local session = {
  startTime = 0, cycleCount = 0, totalHatched = 0,
@@ -610,9 +578,6 @@ local function deleteSession()
  if not isfile or not isfile(SESSION_FILE) then return end
  pcall(function() if delfile then delfile(SESSION_FILE) end end)
 end
-
-
-
 
 local equipState = {IsEquipping = false, PP_Processing = {}, GlobalBoostApplying = false}
 
@@ -698,9 +663,6 @@ local currentTarget = nil
 local currentTeam = {}
 local isKGRunning = false
 
-
-
-
 local teamWatcherRunning = false
 local desiredPets = {}
 
@@ -750,9 +712,6 @@ local function setDesiredPets(equipList2, teamList)
  for _, uuid in ipairs(equipList2) do desiredPets[uuid] = true end
  for _, uuid in ipairs(teamList) do desiredPets[uuid] = true end
 end
-
-
-
 
 local builtInTeams = {
  {name="7 Mimic + 1 Bald Eagle", desc="Max passive Mimic, 1 Eagle filler",
@@ -913,9 +872,6 @@ local function buildTeamDD(parent, onSelect, current, UI2, cfg2, T2)
  return #teamNames
 end
 
-
-
-
 local function getExtraPets(excluded, maxCount)
  local inv = getInventory()
  local candidates = {}
@@ -1000,9 +956,6 @@ end
  return nil
  end
 
-
-
-
 local PetBoostRegistry = nil
 do
  local ok, reg = pcall(function()
@@ -1068,9 +1021,6 @@ local function applyBoost(uuid, statName, petModelName)
  return result
 end
 
-
-
-
 pcall(function() CoreGui:FindFirstChild("HydraHubUI"):Destroy() end)
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "HydraHubUI"
@@ -1135,9 +1085,6 @@ do
  startFrame.Y.Scale, startFrame.Y.Offset + delta.Y)
  end)
 end
-
-
-
 
 local tabBar = UI:frame(mainFrame, UDim2.new(1,0,0,28), UDim2.new(0,0,0,30), T.PANEL)
 UI:stroke(tabBar, T.STROKE, 1)
@@ -1788,7 +1735,6 @@ do
  _G._NH_ddRefs = ddRefs
  rebuildTeams()
 end
-
 
 -- ============================================================
 
@@ -2716,10 +2662,6 @@ do
   end
   end)
 end
-
-
-
-
 
 for i = 2, #tabNames do tabPages[i].Visible = false end
 print("[HydraLite] Loaded successfully. Features: Hatch, Leveling, Nightmare, Elephant (Auto KG), Misc.")
